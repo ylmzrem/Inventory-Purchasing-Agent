@@ -20,7 +20,12 @@ python -m pytest -q                                   # catalogue + metrics + ru
 python tests/run_evaluation.py --list                 # list scenarios
 python tests/run_evaluation.py --systems reference    # self-test: must be 100 %
 python tests/run_evaluation.py                        # agent + baseline (skips what is not implemented yet)
+streamlit run tests/dev_ui.py                         # TEMPORARY test UI (not the final demo app)
 ```
+
+> `tests/dev_ui.py` is a **temporary** developer UI for browsing scenarios, running
+> the evaluation and trying the agent adapter on one scenario (with a mock agent
+> until `src/agent` exists). It will be removed once the real demo UI (`app.py`) is ready.
 
 Reports are written to `tests/results/<timestamp>/`:
 `summary.md` (tables for the report), `scores.csv` (one row per system × scenario)
