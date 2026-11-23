@@ -92,7 +92,7 @@ inventory-purchasing-agent/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/<your-username>/inventory-purchasing-agent.git
+   git clone https://github.com/ylmzrem/inventory-purchasing-agent.git
    cd inventory-purchasing-agent
    ```
 
@@ -228,7 +228,7 @@ inventory-purchasing-agent/
 
 1. **Depoyu bilgisayarınıza klonlayın:**
    ```bash
-   git clone https://github.com/<kullanici-adiniz>/inventory-purchasing-agent.git
+   git clone https://github.com/ylmzrem/inventory-purchasing-agent.git
    cd inventory-purchasing-agent
    ```
 
