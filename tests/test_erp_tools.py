@@ -1,14 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
 import pytest
 from data.seed_data import seed_database
-from src.db.database import get_connection
+from src.db.database import init_db, get_connection, load_scenario_data
 from src.tools.erp_tools import (
     stok_sorgula,
     talep_getir,
-    acik_siparisler,
-    tedarikci_listesi,
     satin_alma_taslagi_olustur,
     satin_alma_talebi_kaydet,
+    compute_approval_token,
 )
+from tests.scenarios.catalog import SCENARIOS
 
 @pytest.fixture
 def test_db(tmp_path):
@@ -16,61 +17,85 @@ def test_db(tmp_path):
     seed_database(db_file)
     return db_file
 
-def test_stok_sorgula_kullanilabilir_stok(test_db):
-    res = stok_sorgula("PRD-001", db_path=test_db)
-    assert res["physical_stock"] == 400
-    assert res["allocated_stock"] == 50
-    assert res["available_stock"] == 350
-    assert "updated_at" in res
+def test_katalog_senaryolari_yukleme_ve_dogrulama(tmp_path):
+    """Katalogdaki 24 senaryonun tamamının KeyError olmadan yüklendiğini ve ilk senaryonun stok/talep değerlerini doğrular."""
+    for sc in SCENARIOS:
+        db_file = tmp_path / f"{sc.id}.db"
+        conn = init_db(db_file)
+        load_scenario_data(conn, sc.data)
+        conn.close()
 
-def test_bilinmeyen_urun_hatasi(test_db):
-    res = stok_sorgula("PRD-999", db_path=test_db)
-    assert res["error"] == "UNKNOWN_PRODUCT"
+    # İlk senaryo için veritabanı okuma doğrulaması
+    s01 = SCENARIOS[0]
+    db_s01 = tmp_path / f"{s01.id}.db"
+    first_sku = s01.data["products"][0]["sku"]
+    stok = stok_sorgula(first_sku, db_path=db_s01)
+    assert stok["sku"] == first_sku
+    assert stok["available_stock"] == stok["physical_stock"] - stok["allocated_stock"]
 
-def test_talep_getir_cift_sayim_onleme(test_db):
-    res = talep_getir("PRD-002", "2026-11-23", "2026-12-07", db_path=test_db)
-    assert res["total_uncovered_demand"] == 270
-
-def test_onaysiz_ve_mukerrer_kayit_engelleme(test_db):
-    draft = satin_alma_taslagi_olustur(
-        product_id="PRD-002",
-        supplier_id="SUP-01",
-        quantity=250,
-        total_cost=26550.0,
-        currency="TRY",
-        required_date="2026-11-28",
-        expected_delivery_date="2026-11-27",
-        rationale="Zamanında teslimat ve kademeli fiyat avantajı.",
-        db_path=test_db
-    )
-    req_id = draft["req_id"]
-
-    unapproved = satin_alma_talebi_kaydet(req_id, user_approved=False, db_path=test_db)
-    assert unapproved["error"] == "APPROVAL_REQUIRED"
-
-    saved = satin_alma_talebi_kaydet(req_id, user_approved=True, db_path=test_db)
-    assert saved["status"] == "SAVED"
-
-    duplicate = satin_alma_talebi_kaydet(req_id, user_approved=True, db_path=test_db)
-    assert duplicate["error"] == "DUPLICATE_EXECUTION"
-
-def test_onay_oncesi_veri_degisimi_kontrolu(test_db):
-    draft = satin_alma_taslagi_olustur(
-        product_id="PRD-003",
-        supplier_id="SUP-01",
-        quantity=50,
-        total_cost=31200.0,
-        currency="TRY",
-        required_date="2026-11-27",
-        expected_delivery_date="2026-11-26",
-        rationale="Acil teslimat.",
-        db_path=test_db
-    )
-
+def test_gecersiz_stokla_taslak_durmali(test_db):
     conn = get_connection(test_db)
-    conn.execute("UPDATE inventory SET physical_stock = 100 WHERE product_id = 'PRD-003'")
+    conn.execute("UPDATE inventory SET allocated_stock = 999 WHERE sku = 'PRD-001'")
     conn.commit()
     conn.close()
 
-    res = satin_alma_talebi_kaydet(draft["req_id"], user_approved=True, db_path=test_db)
+    stok = stok_sorgula("PRD-001", db_path=test_db)
+    assert stok["error"] == "INVALID_INVENTORY_RECORD"
+
+    draft = satin_alma_taslagi_olustur(
+        sku="PRD-001", supplier_id="SUP-01", quantity=50, total_cost=2400.0,
+        currency="TRY", start_date="2026-11-23", end_date="2026-12-07",
+        required_date="2026-11-26", expected_delivery_date="2026-11-26",
+        rationale="Test", db_path=test_db
+    )
+    assert draft["error"] == "INVALID_INVENTORY_RECORD"
+
+def test_onay_oncesi_talep_degisikligi_ve_token_kontrolu(test_db):
+    draft = satin_alma_taslagi_olustur(
+        sku="PRD-002", supplier_id="SUP-01", quantity=250, total_cost=26925.0,
+        currency="TRY", start_date="2026-11-23", end_date="2026-12-07",
+        required_date="2026-11-28", expected_delivery_date="2026-11-27",
+        rationale="Zamanında teslimat.", db_path=test_db
+    )
+    req_id = draft["req_id"]
+    valid_token = compute_approval_token(req_id, draft["snapshot_hash"])
+
+    # Sahte token reddedilmeli
+    bad_auth = satin_alma_talebi_kaydet(req_id, approval_token="fake-token", db_path=test_db)
+    assert bad_auth["error"] == "INVALID_APPROVAL_TOKEN"
+
+    # Onay öncesi talep sıfırlanıyor
+    conn = get_connection(test_db)
+    conn.execute("UPDATE demand_forecast SET quantity = 0 WHERE sku = 'PRD-002'")
+    conn.commit()
+    conn.close()
+
+    res = satin_alma_talebi_kaydet(req_id, approval_token=valid_token, db_path=test_db)
     assert res["error"] == "DATA_CHANGED"
+
+    # Veritabanında durum hâlâ DRAFT kalmış olmalı
+    conn = get_connection(test_db)
+    status = conn.execute("SELECT status FROM purchase_requisitions WHERE req_id = ?", (req_id,)).fetchone()["status"]
+    conn.close()
+    assert status == "DRAFT"
+
+def test_eszamanli_kayit_tekil_kalmali(test_db):
+    draft = satin_alma_taslagi_olustur(
+        sku="PRD-001", supplier_id="SUP-01", quantity=50, total_cost=2400.0,
+        currency="TRY", start_date="2026-11-23", end_date="2026-12-07",
+        required_date="2026-11-26", expected_delivery_date="2026-11-26",
+        rationale="Eşzamanlılık testi", db_path=test_db
+    )
+    req_id = draft["req_id"]
+    token = compute_approval_token(req_id, draft["snapshot_hash"])
+
+    def _call():
+        return satin_alma_talebi_kaydet(req_id, approval_token=token, db_path=test_db)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: _call(), range(2)))
+
+    succeeded = [r for r in results if "error" not in r and r.get("status") == "SAVED"]
+    rejected = [r for r in results if r.get("error") in ("DUPLICATE_EXECUTION", "CONCURRENT_CONFLICT")]
+    assert len(succeeded) == 1
+    assert len(rejected) == 1

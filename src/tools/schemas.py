@@ -21,13 +21,13 @@ ERP_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "stok_sorgula",
-            "description": "Bir ürünün fiziksel stok, ayrılmış/bloke stok, kullanılabilir stok, emniyet stoku, minimum sipariş miktarı ve paket katı bilgilerini zaman damgasıyla getirir.",
+            "description": "Bir ürünün fiziksel stok, ayrılmış/bloke stok, kullanılabilir stok, emniyet stoku ve sipariş kurallarını zaman damgasıyla getirir.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string", "description": "Ürün kodu, örn: PRD-001"}
+                    "sku": {"type": "string", "description": "Ürün kodu (SKU), örn: PRD-001"}
                 },
-                "required": ["product_id"]
+                "required": ["sku"]
             }
         }
     },
@@ -39,11 +39,11 @@ ERP_TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string"},
-                    "start_date": {"type": "string", "description": "YYYY-MM-DD formatında başlangıç tarihi"},
-                    "end_date": {"type": "string", "description": "YYYY-MM-DD formatında bitiş tarihi"}
+                    "sku": {"type": "string"},
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"}
                 },
-                "required": ["product_id", "start_date", "end_date"]
+                "required": ["sku", "start_date", "end_date"]
             }
         }
     },
@@ -54,10 +54,8 @@ ERP_TOOL_SCHEMAS = [
             "description": "Ürüne ait verilmiş ve depoya gelmesi beklenen açık satın alma siparişlerini listeler.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "product_id": {"type": "string"}
-                },
-                "required": ["product_id"]
+                "properties": {"sku": {"type": "string"}},
+                "required": ["sku"]
             }
         }
     },
@@ -65,13 +63,11 @@ ERP_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "tedarikci_listesi",
-            "description": "Ürünü sağlayabilen tedarikçileri, teslim sürelerini (lead time), minimum sipariş koşullarını, nakliye ücretlerini ve kademeli birim fiyatlarını getirir.",
+            "description": "Ürünü sağlayabilen tedarikçileri, teslim sürelerini, nakliye ücretlerini ve kademeli birim fiyatlarını getirir.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "product_id": {"type": "string"}
-                },
-                "required": ["product_id"]
+                "properties": {"sku": {"type": "string"}},
+                "required": ["sku"]
             }
         }
     },
@@ -83,18 +79,20 @@ ERP_TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "string"},
+                    "sku": {"type": "string"},
                     "supplier_id": {"type": "string"},
                     "quantity": {"type": "number"},
                     "total_cost": {"type": "number"},
                     "currency": {"type": "string"},
+                    "start_date": {"type": "string"},
+                    "end_date": {"type": "string"},
                     "required_date": {"type": "string"},
                     "expected_delivery_date": {"type": "string"},
                     "rationale": {"type": "string"}
                 },
                 "required": [
-                    "product_id", "supplier_id", "quantity", "total_cost",
-                    "currency", "required_date", "expected_delivery_date", "rationale"
+                    "sku", "supplier_id", "quantity", "total_cost", "currency",
+                    "start_date", "end_date", "required_date", "expected_delivery_date", "rationale"
                 ]
             }
         }
@@ -103,14 +101,14 @@ ERP_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "satin_alma_talebi_kaydet",
-            "description": "Kullanıcı açıkça onay verdikten sonra taslak satın alma talebini test ortamına SAVED olarak kaydeder.",
+            "description": "Yalnızca uygulama arayüzünden doğrulanmış kullanıcı onay imzası (approval_token) sağlandığında taslağı SAVED olarak kaydeder.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "req_id": {"type": "string"},
-                    "user_approved": {"type": "boolean"}
+                    "approval_token": {"type": "string", "description": "Uygulama katmanından gelen kullanıcı onay imzası"}
                 },
-                "required": ["req_id", "user_approved"]
+                "required": ["req_id", "approval_token"]
             }
         }
     }
